@@ -51,7 +51,21 @@ def _write_csv_header(path: Path) -> None:
         return
     with open(path, "w", newline="", encoding="utf-8") as handle:
         writer = csv.writer(handle)
-        writer.writerow(["epoch", "loss", "loss_ce", "loss_cls", "loss_cons", "loss_boundary", "val_miou", "time_sec"])
+        writer.writerow(
+            [
+                "epoch",
+                "loss",
+                "loss_ce",
+                "loss_cls",
+                "loss_cons",
+                "loss_boundary",
+                "pseudo_valid_ratio",
+                "pseudo_bg_ratio",
+                "pseudo_fg_ratio",
+                "val_miou",
+                "time_sec",
+            ]
+        )
 
 
 def train(config: dict, output: Path, smoke: bool = False) -> None:
@@ -65,6 +79,9 @@ def train(config: dict, output: Path, smoke: bool = False) -> None:
     set_seed(int(config.get("seed", 7)))
     output.mkdir(parents=True, exist_ok=True)
     save_config(config, output / "config.yaml")
+    with open(output / "run_info.txt", "w", encoding="utf-8") as handle:
+        handle.write(f"method_version: {config.get('method_version', 'unknown')}\n")
+        handle.write(f"output: {output}\n")
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     train_loader = _build_loader(config, config["data"]["train_split"], train=True, smoke=smoke)
@@ -86,7 +103,16 @@ def train(config: dict, output: Path, smoke: bool = False) -> None:
     start_time = time.time()
     for epoch in range(1, epochs + 1):
         model.train()
-        running = {"loss": 0.0, "ce": 0.0, "cls": 0.0, "cons": 0.0, "boundary": 0.0}
+        running = {
+            "loss": 0.0,
+            "ce": 0.0,
+            "cls": 0.0,
+            "cons": 0.0,
+            "boundary": 0.0,
+            "pseudo_valid": 0.0,
+            "pseudo_bg": 0.0,
+            "pseudo_fg": 0.0,
+        }
         progress = tqdm(train_loader, desc=f"epoch {epoch}/{epochs}", dynamic_ncols=True)
         for step, batch in enumerate(progress, start=1):
             batch = to_device(batch, device)
@@ -114,6 +140,13 @@ def train(config: dict, output: Path, smoke: bool = False) -> None:
             scaler.update()
             model.update_prototypes(out["tokens"].detach(), pseudo["target"].detach(), pseudo["confidence"].detach())
 
+            with torch.no_grad():
+                pseudo_target = pseudo["target"]
+                valid_mask = pseudo_target != 255
+                valid_count = valid_mask.sum().clamp_min(1)
+                running["pseudo_valid"] += float(valid_mask.float().mean())
+                running["pseudo_bg"] += float(((pseudo_target == 0) & valid_mask).sum().float() / valid_count)
+                running["pseudo_fg"] += float(((pseudo_target > 0) & valid_mask).sum().float() / valid_count)
             running["loss"] += float(loss.detach())
             running["ce"] += float(loss_ce.detach())
             running["cls"] += float(loss_cls.detach())
@@ -146,6 +179,9 @@ def train(config: dict, output: Path, smoke: bool = False) -> None:
             running["cls"] / denom,
             running["cons"] / denom,
             running["boundary"] / denom,
+            running["pseudo_valid"] / denom,
+            running["pseudo_bg"] / denom,
+            running["pseudo_fg"] / denom,
             eval_scores["miou"],
             time.time() - start_time,
         ]
@@ -159,6 +195,9 @@ def train(config: dict, output: Path, smoke: bool = False) -> None:
                 "loss_cls": row[3],
                 "loss_consistency": row[4],
                 "loss_boundary": row[5],
+                "pseudo_valid_ratio": row[6],
+                "pseudo_bg_ratio": row[7],
+                "pseudo_fg_ratio": row[8],
                 "val_miou": eval_scores["miou"],
                 "best_miou": best_miou,
             },
