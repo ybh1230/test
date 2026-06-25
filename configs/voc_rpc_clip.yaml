@@ -1,5 +1,5 @@
 seed: 7
-method_version: rpc_clip_v5_joint_inference_topk
+method_version: rpc_clip_v6_quickgelu_decoder_baseline
 
 data:
   root: /root/autodl-tmp/datasets/VOCdevkit/VOC2012
@@ -11,7 +11,7 @@ data:
   workers: 4
 
 model:
-  clip_model: ViT-B-16
+  clip_model: ViT-B-16-quickgelu
   clip_pretrained: openai
   decoder_hidden: 256
   decoder_dropout: 0.10
@@ -54,7 +54,7 @@ eval:
   ignore_index: 255
   save_predictions: true
   num_visualizations: 16
-  inference_mode: joint
+  inference_mode: decoder
   class_prior_topk: 3
   inference_text_weight: 0.45
   inference_prototype_weight: 0.20

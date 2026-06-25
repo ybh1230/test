@@ -211,7 +211,7 @@ class VOCDataset(Dataset):
         if mask_candidate is not None:
             mask = Image.open(mask_candidate)
             mask = self.mask_tf(mask)
-            mask_tensor = torch.as_tensor(np.asarray(mask, dtype=np.uint8), dtype=torch.long)
+            mask_tensor = torch.as_tensor(np.array(mask, dtype=np.uint8, copy=True), dtype=torch.long)
 
         return {
             "image": image_tensor,
