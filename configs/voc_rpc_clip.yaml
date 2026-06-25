@@ -1,5 +1,5 @@
 seed: 7
-method_version: rpc_clip_v3_bg_heatmap_diag
+method_version: rpc_clip_v4_conservative_quantile_seeds
 
 data:
   root: /root/autodl-tmp/datasets/VOCdevkit/VOC2012
@@ -26,9 +26,12 @@ model:
 
 rpc:
   prototype_momentum: 0.92
-  pseudo_confidence: 0.45
-  update_confidence: 0.58
-  background_threshold: 0.42
+  pseudo_confidence: 0.50
+  update_confidence: 0.64
+  background_threshold: 0.50
+  seed_mode: quantile
+  background_quantile: 0.58
+  foreground_quantile: 0.82
   text_weight: 0.62
   prototype_weight: 0.38
   decoder_weight: 0.00

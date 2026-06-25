@@ -23,6 +23,9 @@ class RPCClip(nn.Module):
         self.prototype_momentum = float(config["rpc"]["prototype_momentum"])
         self.update_confidence = float(config["rpc"]["update_confidence"])
         self.background_threshold = float(config["rpc"].get("background_threshold", 0.42))
+        self.seed_mode = str(config["rpc"].get("seed_mode", "probability"))
+        self.background_quantile = float(config["rpc"].get("background_quantile", 0.58))
+        self.foreground_quantile = float(config["rpc"].get("foreground_quantile", 0.82))
         self.text_weight = float(config["rpc"]["text_weight"])
         self.prototype_weight = float(config["rpc"]["prototype_weight"])
         self.decoder_weight = float(config["rpc"]["decoder_weight"])
@@ -86,13 +89,16 @@ class RPCClip(nn.Module):
         heat = (scores - min_score) / (max_score - min_score).clamp_min(1e-4)
         return heat.masked_fill(~valid, -1e4)
 
+    def text_heat(self, tokens: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
+        raw_scores = tokens @ self.text_features.t()
+        return self._normalize_foreground_scores(raw_scores, labels)
+
     def _background_from_heat(self, heat: torch.Tensor) -> torch.Tensor:
         max_fg_heat = heat.clamp_min(0.0).max(dim=-1, keepdim=True).values
         return (self.background_threshold - max_fg_heat) / self.background_temperature
 
     def text_logits(self, tokens: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
-        raw_scores = tokens @ self.text_features.t()
-        heat = self._normalize_foreground_scores(raw_scores, labels)
+        heat = self.text_heat(tokens, labels)
         fg_logits = (heat - self.background_threshold) / self.text_temperature
         bg_logits = self._background_from_heat(heat)
         return torch.cat([bg_logits, fg_logits], dim=-1)
@@ -137,7 +143,21 @@ class RPCClip(nn.Module):
             raise ValueError(f"Unknown reliability_mode: {self.reliability_mode}")
 
         valid = confidence >= confidence_threshold
+        if self.seed_mode == "quantile":
+            heat = self.text_heat(tokens, labels)
+            max_heat, fg_target = heat.max(dim=-1)
+            bg_cut = torch.quantile(max_heat, self.background_quantile, dim=1, keepdim=True)
+            fg_cut = torch.quantile(max_heat, self.foreground_quantile, dim=1, keepdim=True)
+            seed_target = torch.full_like(target, 255)
+            seed_target[max_heat <= bg_cut] = 0
+            fg_mask = (max_heat >= fg_cut) & (confidence >= confidence_threshold)
+            seed_target[fg_mask] = fg_target[fg_mask] + 1
+            target = seed_target
+            valid = target != 255
+            confidence = confidence * valid.float()
+
         target = target.masked_fill(~valid, 255)
+        reliability = reliability * valid.float()
         return {
             "target": target.reshape(-1, grid_h, grid_w),
             "reliability": reliability.reshape(-1, grid_h, grid_w),
