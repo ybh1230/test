@@ -146,8 +146,9 @@ class RPCClip(nn.Module):
         if self.seed_mode == "quantile":
             heat = self.text_heat(tokens, labels)
             max_heat, fg_target = heat.max(dim=-1)
-            bg_cut = torch.quantile(max_heat, self.background_quantile, dim=1, keepdim=True)
-            fg_cut = torch.quantile(max_heat, self.foreground_quantile, dim=1, keepdim=True)
+            quantile_heat = max_heat.float()
+            bg_cut = torch.quantile(quantile_heat, self.background_quantile, dim=1, keepdim=True).to(max_heat.dtype)
+            fg_cut = torch.quantile(quantile_heat, self.foreground_quantile, dim=1, keepdim=True).to(max_heat.dtype)
             seed_target = torch.full_like(target, 255)
             seed_target[max_heat <= bg_cut] = 0
             fg_mask = (max_heat >= fg_cut) & (confidence >= confidence_threshold)
