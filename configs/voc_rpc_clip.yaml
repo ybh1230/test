@@ -1,0 +1,50 @@
+seed: 7
+
+data:
+  root: /root/autodl-tmp/datasets/VOCdevkit/VOC2012
+  train_split: train
+  val_split: val
+  cls_label_file: null
+  image_size: 224
+  batch_size: 16
+  workers: 4
+
+model:
+  clip_model: ViT-B-16
+  clip_pretrained: openai
+  decoder_hidden: 256
+  decoder_dropout: 0.10
+  text_temperature: 0.07
+  prototype_temperature: 0.10
+  prompt_templates:
+    - "a photo of a {}."
+    - "a photo of the {}."
+    - "a close-up photo of a {}."
+    - "a cropped photo of the {}."
+
+rpc:
+  prototype_momentum: 0.92
+  pseudo_confidence: 0.52
+  update_confidence: 0.62
+  text_weight: 0.45
+  prototype_weight: 0.35
+  decoder_weight: 0.20
+  reliability_mode: entropy
+
+train:
+  epochs: 8
+  lr: 0.001
+  weight_decay: 0.0001
+  warmup_epochs: 1
+  log_interval: 20
+  eval_interval: 1
+  amp: true
+  lambda_ce: 1.0
+  lambda_cls: 0.25
+  lambda_consistency: 0.15
+  lambda_boundary: 0.04
+
+eval:
+  ignore_index: 255
+  save_predictions: true
+  num_visualizations: 16

@@ -1,0 +1,9 @@
+variant,text_pseudo,prototype_bank,reliability_weight,boundary_smoothness,prompt_templates,val_miou,delta,notes
+Text only,yes,no,no,no,4,TBD,TBD,disable prototype and reliability fusion
++ Prototype,yes,yes,no,no,4,TBD,TBD,set reliability to confidence only
++ Reliability,yes,yes,yes,no,4,TBD,TBD,entropy reliability enabled
+Full RPC-CLIP,yes,yes,yes,yes,4,TBD,TBD,default config
+Full / 1 prompt,yes,yes,yes,yes,1,TBD,TBD,prompt sensitivity
+Full / momentum 0.80,yes,yes,yes,yes,4,TBD,TBD,prototype momentum sensitivity
+Full / momentum 0.98,yes,yes,yes,yes,4,TBD,TBD,prototype momentum sensitivity
+

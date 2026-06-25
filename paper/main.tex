@@ -1,0 +1,232 @@
+\documentclass[letterpaper]{article}
+\usepackage{aaai2027}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{multirow}
+\usepackage{xcolor}
+\usepackage{url}
+
+\newcommand{\method}{RPC-CLIP}
+\newcommand{\todo}[1]{\textcolor{red}{[#1]}}
+
+\title{Reliability-Guided Prompt-Prototype Calibration for\\Weakly Supervised Semantic Segmentation}
+\author{Anonymous AAAI 2027 Submission}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Weakly supervised semantic segmentation (WSSS) seeks to learn dense masks from
+image-level labels, but modern CLIP-based pipelines still suffer from noisy
+patch-text activations, incomplete object coverage, and unstable background
+assignment. We propose \method, a single-GPU friendly framework that freezes
+CLIP and trains only a lightweight patch decoder. The key idea is to calibrate
+CLIP pseudo labels with a momentum prototype bank and an entropy-based
+reliability estimator. Given image-level labels, \method first derives
+class-constrained patch scores from prompt-averaged CLIP text embeddings. It then
+updates foreground and background prototypes from high-confidence patches, fuses
+text, prototype, and decoder distributions according to reliability, and applies
+a boundary-aware smoothness regularizer. This design keeps training fast while
+progressively correcting under-activated object regions. Experiments on PASCAL
+VOC 2012 and optional MS COCO will show that \method improves over text-only
+CLIP pseudo labels and remains competitive with recent CLIP-based WSSS methods.
+\todo{Fill final mIoU, test server numbers, runtime, and significance after
+real experiments.}
+\end{abstract}
+
+\section{Introduction}
+Weakly supervised semantic segmentation reduces annotation cost by replacing
+pixel-level masks with cheaper supervision such as image-level labels. Classic
+CAM-based methods~\cite{zhou2016cam} localize discriminative object parts, but
+they often miss complete object extents. Recent CLIP-based
+methods~\cite{radford2021clip,lin2023clipes,zhang2024weclip} offer stronger
+open-vocabulary semantic priors, yet patch-text similarity maps remain noisy:
+confident patches may cover only the most recognizable parts, while background
+pixels can be mistakenly attracted by foreground prompts.
+
+This paper asks whether a frozen CLIP model can be made more reliable without
+introducing a heavy segmentation backbone. Our answer is \method, a
+prompt-prototype calibration framework designed for fast single-GPU training.
+Instead of fine-tuning CLIP, we keep the visual-language encoder fixed and train
+a small patch decoder on pseudo labels. The pseudo labels are not taken directly
+from CLIP. They are calibrated by a momentum prototype bank that accumulates
+class evidence from confident patches and by a reliability score that suppresses
+uncertain regions.
+
+The proposed framework follows a practical principle: a pseudo label should be
+trusted only when language evidence, visual prototypes, and the current decoder
+are sufficiently consistent. This reliability-guided fusion improves training
+stability and gives the decoder a cleaner curriculum. To reduce oversmoothing
+across object boundaries, we further add an image-gradient weighted smoothness
+term.
+
+Our contributions are:
+\begin{itemize}
+  \item We introduce a lightweight frozen-CLIP WSSS framework that trains on a
+  single GPU and uses only image-level labels.
+  \item We propose prompt-prototype calibration, where class-constrained CLIP
+  text scores are corrected by a momentum prototype bank.
+  \item We design a reliability-guided pseudo-label fusion objective combining
+  text, prototype, and decoder distributions.
+  \item We provide a complete experimental protocol with comparison, ablation,
+  and visualization templates for PASCAL VOC 2012.
+\end{itemize}
+
+\section{Related Work}
+\textbf{Weakly supervised semantic segmentation.}
+CAM-based WSSS methods use image classifiers to localize discriminative regions.
+SEAM~\cite{wang2020seam} improves consistency under image transformations,
+while reliability-aware methods~\cite{zhang2021rrm,zhang2021a2gnn} show that
+mining trustworthy regions is crucial for end-to-end WSSS. \method follows this
+reliability-oriented line but replaces a supervised classification backbone with
+a frozen CLIP encoder.
+
+\textbf{Vision-language models for segmentation.}
+CLIP~\cite{radford2021clip} transfers language supervision to visual recognition
+and has become a strong prior for weakly supervised segmentation. CLIP-ES and
+WeCLIP~\cite{lin2023clipes,zhang2024weclip} demonstrate that CLIP patch-text
+similarities can produce useful pseudo masks. However, raw language similarity
+is not calibrated for dense prediction. Our method uses text features as
+initialization and continuously refines them with image-level visual prototypes.
+
+\textbf{Prototype learning.}
+Prototype-based segmentation summarizes class appearance with representative
+features. SFC~\cite{xu2024sfc} shows that feature calibration can improve weakly
+supervised segmentation. In weak supervision, prototype updates must be
+conservative because incorrect pseudo labels can quickly contaminate the class
+representation. \method addresses this issue with confidence-gated momentum
+updates and entropy-based reliability weighting.
+
+\section{Method}
+\subsection{Overview}
+Given an image $I$ and image-level label vector $y \in \{0,1\}^{C}$, a frozen
+CLIP ViT extracts patch features $X=\{x_i\}_{i=1}^{N}$, where
+$x_i \in \mathbb{R}^{d}$. A lightweight decoder $g_\theta$ predicts dense logits
+$Z=g_\theta(X) \in \mathbb{R}^{(C+1)\times H \times W}$ including background.
+Only $\theta$ is optimized.
+
+\subsection{Prompt-Constrained CLIP Seeds}
+For each class $c$, we average CLIP text embeddings over prompt templates:
+\begin{equation}
+t_c = \mathrm{norm}\left(\frac{1}{K}\sum_{k=1}^{K}
+\mathrm{CLIP}_{text}(p_k(c))\right).
+\end{equation}
+Patch-text logits are computed as cosine similarities:
+\begin{equation}
+s^{text}_{i,c} = x_i^\top t_c / \tau_t.
+\end{equation}
+Classes absent from $y$ are masked out. Background is initialized as the inverse
+of the strongest foreground response, encouraging low-foreground patches to be
+used as background candidates.
+
+\subsection{Momentum Prototype Calibration}
+We maintain prototypes $P=\{p_0,\ldots,p_C\}$ for background and foreground
+classes. Foreground prototypes are initialized by text embeddings, while the
+background prototype is learned from confident low-foreground regions. Given
+pseudo target $\hat{m}$ and confidence $q$, class $c$ is updated only when enough
+patches satisfy $\hat{m}_i=c$ and $q_i>\gamma$:
+\begin{equation}
+p_c \leftarrow \mathrm{norm}\left(\mu p_c + (1-\mu)
+\frac{1}{|\Omega_c|}\sum_{i\in\Omega_c} x_i\right).
+\end{equation}
+Prototype logits are $s^{proto}_{i,c}=x_i^\top p_c/\tau_p$.
+
+\subsection{Reliability-Guided Fusion}
+The final pseudo distribution combines text, prototype, and decoder
+probabilities:
+\begin{equation}
+\pi_i = \lambda_t \sigma(s^{text}_i) + \lambda_p \sigma(s^{proto}_i)
++ \lambda_d \sigma(z_i).
+\end{equation}
+Reliability is estimated by normalized entropy and confidence:
+\begin{equation}
+r_i = \max_c \pi_{i,c}\left(1 -
+\frac{-\sum_c \pi_{i,c}\log\pi_{i,c}}{\log(C+1)}\right).
+\end{equation}
+Pixels whose confidence is lower than $\eta$ are ignored. The training objective
+is:
+\begin{equation}
+\mathcal{L}= \mathcal{L}_{ce} + \alpha\mathcal{L}_{cls}
++ \beta\mathcal{L}_{kl} + \delta\mathcal{L}_{bd}.
+\end{equation}
+Here $\mathcal{L}_{ce}$ is reliability-weighted cross entropy,
+$\mathcal{L}_{cls}$ is image-level multi-label classification loss from pooled
+decoder logits, $\mathcal{L}_{kl}$ aligns decoder probabilities to $\pi$, and
+$\mathcal{L}_{bd}$ is an image-gradient weighted smoothness term.
+
+\section{Experiments}
+\subsection{Datasets and Metrics}
+We evaluate on PASCAL VOC 2012~\cite{voc2010} using image-level labels for
+training and report mean intersection-over-union (mIoU) on validation and test
+sets. Optional MS COCO experiments can be added after the VOC pipeline is
+stable.
+
+\subsection{Implementation Details}
+Unless specified otherwise, \method uses CLIP ViT-B/16, four prompt templates,
+input resolution $224\times224$, AdamW, batch size 16, and eight fast
+pre-experiment epochs. The CLIP encoder is frozen. Only the decoder is trained.
+All experiments are run on a single GPU. \todo{Replace with exact GPU model and
+training time.}
+
+\subsection{Comparison with State of the Art}
+\begin{table}[t]
+\centering
+\small
+\begin{tabular}{lccc}
+\toprule
+Method & Backbone & Val mIoU & Test mIoU \\
+\midrule
+CAM & VGG16 & \todo{TBD} & \todo{TBD} \\
+SEAM & ResNet38 & \todo{TBD} & \todo{TBD} \\
+RRM & ResNet38 & \todo{TBD} & \todo{TBD} \\
+CLIP-ES & CLIP ViT-B/16 & \todo{TBD} & \todo{TBD} \\
+SFC & CLIP ViT-B/16 & \todo{TBD} & \todo{TBD} \\
+WeCLIP & CLIP ViT-B/16 & \todo{TBD} & \todo{TBD} \\
+\method & CLIP ViT-B/16 & \todo{TBD} & \todo{TBD} \\
+\bottomrule
+\end{tabular}
+\caption{Comparison on PASCAL VOC 2012. Fill all numbers after reproducing or
+quoting under the same protocol.}
+\end{table}
+
+\subsection{Ablation Study}
+\begin{table}[t]
+\centering
+\small
+\begin{tabular}{lcc}
+\toprule
+Variant & Val mIoU & $\Delta$ \\
+\midrule
+Text-only pseudo labels & \todo{TBD} & -- \\
++ Prototype calibration & \todo{TBD} & \todo{TBD} \\
++ Reliability weighting & \todo{TBD} & \todo{TBD} \\
++ Boundary smoothness (\method) & \todo{TBD} & \todo{TBD} \\
+\bottomrule
+\end{tabular}
+\caption{Ablation of RPC components.}
+\end{table}
+
+\subsection{Qualitative Results}
+Figure~\ref{fig:qualitative} will show input images, pseudo labels, predictions,
+and ground-truth masks. We will include both success and failure cases to reveal
+whether reliability calibration improves object coverage.
+\begin{figure}[t]
+\centering
+\fbox{\rule{0pt}{1.2in}\rule{0.9\linewidth}{0pt}}
+\caption{Qualitative examples. Replace this placeholder with panels generated
+by \texttt{visualize.py}.}
+\label{fig:qualitative}
+\end{figure}
+
+\section{Conclusion}
+We presented \method, a fast frozen-CLIP framework for weakly supervised
+semantic segmentation. By combining prompt-constrained language evidence,
+momentum prototype calibration, and reliability-guided pseudo-label fusion,
+\method aims to improve pseudo-mask quality while keeping training practical on a
+single GPU. Future work will extend the protocol to larger datasets and stronger
+open-vocabulary backbones.
+
+\bibliographystyle{plain}
+\bibliography{references}
+\end{document}

@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.mplconfig/
+.venv/
+venv/
+runs/
+*.pt
+*.pth
+*.zip
+VOCtrainval_11-May-2012.tar

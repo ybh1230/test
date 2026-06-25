@@ -1,0 +1,9 @@
+method,venue,supervision,backbone,train_set,val_miou,test_miou,params_trained,gpu_hours,notes
+CAM,CVPR2016,image-level,VGG16,VOC trainaug,TBD,TBD,TBD,TBD,baseline
+SEAM,CVPR2020,image-level,ResNet38,VOC trainaug,TBD,TBD,TBD,TBD,affinity/self-supervision
+RRM,AAAI2021,image-level,ResNet38,VOC trainaug,TBD,TBD,TBD,TBD,reliability mining
+CLIP-ES,CVPR2023,image-level,CLIP ViT-B/16,VOC trainaug,TBD,TBD,TBD,TBD,CLIP baseline
+SFC,AAAI2024,image-level,CLIP ViT-B/16,VOC trainaug,TBD,TBD,TBD,TBD,shared feature calibration
+WeCLIP,ECCV2024,image-level,CLIP ViT-B/16,VOC trainaug,TBD,TBD,TBD,TBD,frozen CLIP segmenter
+RPC-CLIP,Ours,image-level,CLIP ViT-B/16,VOC trainaug,TBD,TBD,TBD,TBD,fill after real run
+
