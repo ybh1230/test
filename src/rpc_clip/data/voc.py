@@ -157,12 +157,7 @@ class VOCDataset(Dataset):
         if train:
             self.image_tf = transforms.Compose(
                 [
-                    transforms.RandomResizedCrop(
-                        image_size,
-                        scale=(0.55, 1.0),
-                        ratio=(0.75, 1.3333),
-                        interpolation=InterpolationMode.BICUBIC,
-                    ),
+                    transforms.Resize((image_size, image_size), interpolation=InterpolationMode.BICUBIC),
                     transforms.RandomHorizontalFlip(),
                     transforms.ToTensor(),
                     transforms.Normalize(CLIP_MEAN, CLIP_STD),
@@ -230,4 +225,3 @@ def worker_init_fn(worker_id: int) -> None:
     seed = torch.initial_seed() % 2**32
     random.seed(seed + worker_id)
     np.random.seed(seed + worker_id)
-

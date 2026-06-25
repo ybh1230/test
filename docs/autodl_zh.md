@@ -43,6 +43,14 @@ bash scripts/autodl_setup.sh
 pip install open_clip_torch -i https://pypi.tuna.tsinghua.edu.cn/simple
 ```
 
+脚本会默认使用 HuggingFace 镜像并把缓存放到数据盘：
+
+```bash
+export HF_ENDPOINT=https://hf-mirror.com
+export HF_HOME=/root/autodl-tmp/hf-cache
+export HUGGINGFACE_HUB_CACHE=/root/autodl-tmp/hf-cache
+```
+
 ## 4. 下载 VOC 2012
 
 ```bash
@@ -151,4 +159,3 @@ paper/main.md
 ```bash
 experiments/experiment_log.md
 ```
-

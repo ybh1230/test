@@ -16,6 +16,7 @@ model:
   decoder_dropout: 0.10
   text_temperature: 0.07
   prototype_temperature: 0.10
+  background_temperature: 0.12
   prompt_templates:
     - "a photo of a {}."
     - "a photo of the {}."
@@ -24,11 +25,12 @@ model:
 
 rpc:
   prototype_momentum: 0.92
-  pseudo_confidence: 0.52
-  update_confidence: 0.62
-  text_weight: 0.45
-  prototype_weight: 0.35
-  decoder_weight: 0.20
+  pseudo_confidence: 0.45
+  update_confidence: 0.58
+  background_threshold: 0.42
+  text_weight: 0.62
+  prototype_weight: 0.38
+  decoder_weight: 0.00
   reliability_mode: entropy
 
 train:

@@ -19,8 +19,10 @@ class RPCClip(nn.Module):
         self.num_classes = self.num_fg_classes + 1
         self.text_temperature = float(model_cfg["text_temperature"])
         self.prototype_temperature = float(model_cfg["prototype_temperature"])
+        self.background_temperature = float(model_cfg.get("background_temperature", 0.12))
         self.prototype_momentum = float(config["rpc"]["prototype_momentum"])
         self.update_confidence = float(config["rpc"]["update_confidence"])
+        self.background_threshold = float(config["rpc"].get("background_threshold", 0.42))
         self.text_weight = float(config["rpc"]["text_weight"])
         self.prototype_weight = float(config["rpc"]["prototype_weight"])
         self.decoder_weight = float(config["rpc"]["decoder_weight"])
@@ -76,24 +78,34 @@ class RPCClip(nn.Module):
         logits = self.decoder(tokens, grid_hw)
         return {"tokens": tokens, "grid_hw": grid_hw, "logits": logits}
 
-    def _mask_absent_foreground(self, logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
-        masked = logits.clone()
-        absent = labels <= 0
-        masked = masked.masked_fill(absent[:, None, :], -1e4)
-        return masked
+    def _normalize_foreground_scores(self, scores: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
+        present = labels > 0
+        valid = present[:, None, :]
+        min_score = scores.masked_fill(~valid, 1e4).amin(dim=1, keepdim=True)
+        max_score = scores.masked_fill(~valid, -1e4).amax(dim=1, keepdim=True)
+        heat = (scores - min_score) / (max_score - min_score).clamp_min(1e-4)
+        return heat.masked_fill(~valid, -1e4)
+
+    def _background_from_heat(self, heat: torch.Tensor) -> torch.Tensor:
+        max_fg_heat = heat.clamp_min(0.0).max(dim=-1, keepdim=True).values
+        return (self.background_threshold - max_fg_heat) / self.background_temperature
 
     def text_logits(self, tokens: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
-        fg_logits = (tokens @ self.text_features.t()) / self.text_temperature
-        fg_logits = self._mask_absent_foreground(fg_logits, labels)
-        max_fg = fg_logits.max(dim=-1, keepdim=True).values
-        bg_logits = -max_fg.clamp(min=-12.0, max=12.0)
+        raw_scores = tokens @ self.text_features.t()
+        heat = self._normalize_foreground_scores(raw_scores, labels)
+        fg_logits = (heat - self.background_threshold) / self.text_temperature
+        bg_logits = self._background_from_heat(heat)
         return torch.cat([bg_logits, fg_logits], dim=-1)
 
     def prototype_logits(self, tokens: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
         prototypes = F.normalize(self.prototypes, dim=-1)
-        logits = (tokens @ prototypes.t()) / self.prototype_temperature
-        fg_logits = self._mask_absent_foreground(logits[:, :, 1:], labels)
-        return torch.cat([logits[:, :, :1], fg_logits], dim=-1)
+        raw_scores = tokens @ prototypes.t()
+        heat = self._normalize_foreground_scores(raw_scores[:, :, 1:], labels)
+        fg_logits = (heat - self.background_threshold) / self.prototype_temperature
+        bg_logits = self._background_from_heat(heat)
+        if self.prototype_seen[0] > 0.5:
+            bg_logits = bg_logits + 0.25 * raw_scores[:, :, :1] / self.prototype_temperature
+        return torch.cat([bg_logits, fg_logits], dim=-1)
 
     def pseudo_targets(
         self,
