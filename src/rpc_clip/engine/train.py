@@ -158,7 +158,7 @@ def train(config: dict, output: Path, smoke: bool = False) -> None:
         denom = max(len(train_loader), 1)
         eval_scores = {"miou": -1.0}
         if epoch % int(config["train"]["eval_interval"]) == 0:
-            eval_scores = evaluate(model, val_loader, device, int(config["eval"]["ignore_index"]))
+            eval_scores = evaluate(model, val_loader, device, int(config["eval"]["ignore_index"]), config=config)
             if eval_scores["miou"] > best_miou:
                 best_miou = float(eval_scores["miou"])
                 torch.save(

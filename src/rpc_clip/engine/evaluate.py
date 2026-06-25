@@ -16,16 +16,29 @@ from rpc_clip.utils.metrics import SegmentationMeter
 
 
 @torch.no_grad()
-def evaluate(model: RPCClip, loader: DataLoader, device: torch.device, ignore_index: int = 255) -> dict:
+def evaluate(model: RPCClip, loader: DataLoader, device: torch.device, ignore_index: int = 255, config: Optional[dict] = None) -> dict:
     model.eval()
+    eval_cfg = (config or {}).get("eval", {})
     meter = SegmentationMeter(num_classes=len(VOC_CLASSES) + 1, ignore_index=ignore_index)
     for batch in tqdm(loader, desc="eval", dynamic_ncols=True, leave=False):
         batch = to_device(batch, device)
         out = model(batch["image"])
-        logits = F.interpolate(out["logits"], size=batch["mask"].shape[-2:], mode="bilinear", align_corners=False)
+        patch_logits = model.inference_logits(
+            out["tokens"],
+            out["logits"],
+            mode=str(eval_cfg.get("inference_mode", "decoder")),
+            class_prior_topk=int(eval_cfg.get("class_prior_topk", 3)),
+            text_weight=float(eval_cfg.get("inference_text_weight", 0.45)),
+            prototype_weight=float(eval_cfg.get("inference_prototype_weight", 0.20)),
+            decoder_weight=float(eval_cfg.get("inference_decoder_weight", 0.35)),
+        )
+        logits = F.interpolate(patch_logits, size=batch["mask"].shape[-2:], mode="bilinear", align_corners=False)
         pred = logits.argmax(dim=1)
         meter.update(pred, batch["mask"])
-    return meter.scores()
+    scores = meter.scores()
+    scores["inference_mode"] = str(eval_cfg.get("inference_mode", "decoder"))
+    scores["class_prior_topk"] = int(eval_cfg.get("class_prior_topk", 3))
+    return scores
 
 
 def _build_eval_loader(config: dict, split: Optional[str], smoke: bool) -> DataLoader:
@@ -69,7 +82,7 @@ def main() -> None:
     checkpoint = torch.load(args.checkpoint, map_location=device)
     model.load_rpc_state_dict(checkpoint.get("rpc_state", checkpoint.get("model")))
     loader = _build_eval_loader(config, args.split, args.smoke)
-    scores = evaluate(model, loader, device, int(config["eval"]["ignore_index"]))
+    scores = evaluate(model, loader, device, int(config["eval"]["ignore_index"]), config=config)
     print(scores)
     if args.output:
         save_jsonl(scores, Path(args.output) / "eval.jsonl")

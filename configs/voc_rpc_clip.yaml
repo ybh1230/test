@@ -1,5 +1,5 @@
 seed: 7
-method_version: rpc_clip_v4_conservative_quantile_seeds
+method_version: rpc_clip_v5_joint_inference_topk
 
 data:
   root: /root/autodl-tmp/datasets/VOCdevkit/VOC2012
@@ -54,3 +54,8 @@ eval:
   ignore_index: 255
   save_predictions: true
   num_visualizations: 16
+  inference_mode: joint
+  class_prior_topk: 3
+  inference_text_weight: 0.45
+  inference_prototype_weight: 0.20
+  inference_decoder_weight: 0.35

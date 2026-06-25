@@ -113,6 +113,52 @@ class RPCClip(nn.Module):
             bg_logits = bg_logits + 0.25 * raw_scores[:, :, :1] / self.prototype_temperature
         return torch.cat([bg_logits, fg_logits], dim=-1)
 
+    @torch.no_grad()
+    def predict_image_labels(self, tokens: torch.Tensor, topk: int = 3) -> torch.Tensor:
+        if topk <= 0 or topk >= self.num_fg_classes:
+            return torch.ones(tokens.shape[0], self.num_fg_classes, device=tokens.device)
+        raw_scores = tokens @ self.text_features.t()
+        image_scores = raw_scores.max(dim=1).values
+        topk_idx = image_scores.topk(k=min(topk, self.num_fg_classes), dim=1).indices
+        labels = torch.zeros(tokens.shape[0], self.num_fg_classes, device=tokens.device)
+        return labels.scatter_(1, topk_idx, 1.0)
+
+    def inference_logits(
+        self,
+        tokens: torch.Tensor,
+        decoder_logits: torch.Tensor,
+        mode: str = "joint",
+        class_prior_topk: int = 3,
+        text_weight: float = 0.45,
+        prototype_weight: float = 0.20,
+        decoder_weight: float = 0.35,
+    ) -> torch.Tensor:
+        if mode == "decoder":
+            return decoder_logits
+
+        labels = self.predict_image_labels(tokens, topk=class_prior_topk)
+        text_prob = self.text_logits(tokens, labels).softmax(dim=-1)
+        proto_prob = self.prototype_logits(tokens, labels).softmax(dim=-1)
+        dec_prob = decoder_logits.permute(0, 2, 3, 1).reshape(tokens.shape[0], -1, self.num_classes).softmax(dim=-1)
+
+        if mode == "clip":
+            joint = text_prob
+        elif mode == "prototype":
+            joint = proto_prob
+        elif mode == "joint":
+            weight_sum = max(text_weight + prototype_weight + decoder_weight, 1e-6)
+            joint = (
+                text_weight / weight_sum * text_prob
+                + prototype_weight / weight_sum * proto_prob
+                + decoder_weight / weight_sum * dec_prob
+            )
+        else:
+            raise ValueError(f"Unknown inference mode: {mode}")
+
+        grid_h, grid_w = decoder_logits.shape[-2:]
+        logits = joint.clamp_min(1e-6).log().reshape(-1, grid_h, grid_w, self.num_classes).permute(0, 3, 1, 2)
+        return logits
+
     def pseudo_targets(
         self,
         tokens: torch.Tensor,

@@ -85,7 +85,17 @@ def visualize(config: dict, checkpoint_path: str | Path, output: Path, split: st
             break
         batch = to_device(batch, device)
         out = model(batch["image"])
-        logits = F.interpolate(out["logits"], size=batch["mask"].shape[-2:], mode="bilinear", align_corners=False)
+        eval_cfg = config.get("eval", {})
+        patch_logits = model.inference_logits(
+            out["tokens"],
+            out["logits"],
+            mode=str(eval_cfg.get("inference_mode", "decoder")),
+            class_prior_topk=int(eval_cfg.get("class_prior_topk", 3)),
+            text_weight=float(eval_cfg.get("inference_text_weight", 0.45)),
+            prototype_weight=float(eval_cfg.get("inference_prototype_weight", 0.20)),
+            decoder_weight=float(eval_cfg.get("inference_decoder_weight", 0.35)),
+        )
+        logits = F.interpolate(patch_logits, size=batch["mask"].shape[-2:], mode="bilinear", align_corners=False)
         pred = logits.argmax(dim=1)[0]
         present = torch.unique(pred).detach().cpu().tolist()
         present_names = ", ".join(names[class_id] for class_id in present if class_id < len(names))
